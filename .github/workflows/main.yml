@@ -24,14 +24,10 @@ jobs:
       uses: actions/checkout@v2
       with:
         path: love2d-${{ github.sha }}
-    - name: Checkout LuaJIT
-      uses: actions/checkout@v2
-      with:
-        repository: LuaJIT/LuaJIT
-        path: LuaJIT-f3c8569
-        ref: 'f3c8569'
     - name: Build AppImage
-      run: make LOVE_BRANCH=${{ github.sha }} LUAJIT_BRANCH=f3c8569
+      run: make LOVE_BRANCH=${{ github.sha }}
+    - name: Print LuaJIT branch
+      run: git -C LuaJIT-v2.1 branch -v
     - name: Artifact
       uses: actions/upload-artifact@v2
       with:
