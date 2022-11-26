@@ -46,6 +46,9 @@ jobs:
     defaults:
       run:
         shell: cmd
+    env:
+      # See https://github.com/actions/runner-images/issues/6627
+      CMAKE_IGNORE_PREFIX_PATH: C:/Strawberry;C:/Strawberry/c;C:/Strawberry/perl
     continue-on-error: ${{ matrix.platform == 'ARM64' }}
     steps:
     - name: Define Variables
