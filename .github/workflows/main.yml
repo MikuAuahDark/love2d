@@ -46,9 +46,6 @@ jobs:
     defaults:
       run:
         shell: cmd
-    env:
-      # See https://github.com/actions/runner-images/issues/6627
-      CMAKE_IGNORE_PREFIX_PATH: C:/Strawberry;C:/Strawberry/c;C:/Strawberry/perl
     continue-on-error: ${{ matrix.platform == 'ARM64' }}
     steps:
     - name: Define Variables
@@ -117,7 +114,7 @@ jobs:
       working-directory: angle
       run: 7z x angle-win-${{ steps.vars.outputs.arch }}.zip
     - name: Configure
-      run: cmake -Bbuild -Hmegasource -T v142 -A ${{ matrix.platform }} -DCMAKE_INSTALL_PREFIX=%CD%\install ${{ steps.vars.outputs.moredef }}
+      run: cmake -Bbuild -Hmegasource -T v142 -A ${{ matrix.platform }} -DCMAKE_INSTALL_PREFIX=%CD%\install -DCMAKE_IGNORE_PREFIX_PATH=C:/Strawberry;C:/Strawberry/c;C:/Strawberry/perl ${{ steps.vars.outputs.moredef }}
     - name: Install
       run: cmake --build build --target PACKAGE --config Release -j2
     - name: Artifact
