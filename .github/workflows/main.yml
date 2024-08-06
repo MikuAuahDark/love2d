@@ -19,6 +19,8 @@ jobs:
       run: sudo apt-get update
     - name: Install Dependencies
       run: |
+        set -e
+        sudo apt-get remove 'libunwind-1*'
         sudo apt-get install --assume-yes build-essential git make cmake autoconf automake \
                                           libtool pkg-config libasound2-dev libpulse-dev libaudio-dev \
                                           libjack-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
