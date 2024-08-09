@@ -29,7 +29,8 @@ jobs:
                                           libegl1-mesa-dev libibus-1.0-dev fcitx-libs-dev libsamplerate0-dev \
                                           libsndio-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev \
                                           libcurl4-openssl-dev libfuse2 wmctrl openbox mesa-vulkan-drivers \
-                                          libvulkan1 libgstreamer1.0-dev
+                                          libvulkan1 vulkan-tools vulkan-validationlayers \
+                                          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
     - name: Install Vulkan SDK
       if: ${{ runner.arch == 'X64' }}
       run: |
