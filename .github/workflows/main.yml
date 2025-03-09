@@ -3,10 +3,16 @@ on: [push, pull_request]
 
 jobs:
   Linux:
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner.runner }}
     strategy:
+      fail-fast: false
       matrix:
-        runner: [ubuntu-22.04, ubuntu-24.04-arm]
+        runner:
+        - runner: ubuntu-22.04
+          container: '{"image": null}'
+        - runner: ubuntu-24.04-arm
+          container: '{"image": "arm64v8/ubuntu:22.04"}'
+    container: ${{ fromJSON(matrix.runner.container) }}
     permissions:
       checks: write
       pull-requests: write
