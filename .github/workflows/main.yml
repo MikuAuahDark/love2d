@@ -21,12 +21,13 @@ jobs:
       VK_LAYER_SETTINGS_PATH: love2d-${{ github.sha }}/testing/resources/vk_layer_settings.txt
       DISPLAY: :99
     steps:
-    - name: Setup sudo
+    - name: Setup Container
       if: ${{ fromJSON(matrix.runner.container).image != null }}
       run: |
         set -e
         apt-get update
         apt-get install -y sudo python-is-python3 curl
+        echo QEMU=env >> $GITHUB_ENV
     - name: Update APT
       run: sudo apt-get update
     - name: Install Dependencies
