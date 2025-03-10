@@ -11,7 +11,7 @@ jobs:
         - runner: ubuntu-22.04
           container: '{"image": null}'
         - runner: ubuntu-24.04-arm
-          container: '{"image": "arm64v8/ubuntu:22.04"}'
+          container: '{"image": "arm64v8/ubuntu:22.04", "options": "--cap-add SYS_ADMIN --device /dev/fuse"}'
     container: ${{ fromJSON(matrix.runner.container) }}
     permissions:
       checks: write
@@ -27,7 +27,6 @@ jobs:
         set -e
         apt-get update
         apt-get install -y sudo python-is-python3 curl
-        echo QEMU=env >> $GITHUB_ENV
     - name: Update APT
       run: sudo apt-get update
     - name: Install Dependencies
@@ -72,6 +71,16 @@ jobs:
       run: make LOVE_BRANCH=${{ github.sha }}
     - name: Print LuaJIT branch
       run: git -C LuaJIT-v2.1 branch -v
+    - name: Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: love-linux-${{ runner.arch }}.AppImage
+        path: love-${{ github.sha }}.AppImage
+    - name: Artifact Debug Symbols
+      uses: actions/upload-artifact@v4
+      with:
+        name: love-${{ runner.arch }}-AppImage-debug
+        path: love-${{ github.sha }}.AppImage-debug.tar.gz
     # start xvfb for test running
     - name: Start xvfb and openbox
       run: |
@@ -154,16 +163,6 @@ jobs:
       run: |
         kill $XVFBPID
         kill $OPENBOXPID
-    - name: Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: love-linux-${{ runner.arch }}.AppImage
-        path: love-${{ github.sha }}.AppImage
-    - name: Artifact Debug Symbols
-      uses: actions/upload-artifact@v4
-      with:
-        name: love-${{ runner.arch }}-AppImage-debug
-        path: love-${{ github.sha }}.AppImage-debug.tar.gz
     - name: Check Tests Passing
       if: steps.report1.outputs.conclusion == 'failure' || steps.report2.outputs.conclusion == 'failure' || steps.report3.outputs.conclusion == 'failure'
       run: |
