@@ -11,7 +11,7 @@ jobs:
         - runner: ubuntu-22.04
           container: '{"image": null}'
         - runner: ubuntu-24.04-arm
-          container: '{"image": "arm64v8/ubuntu:22.04", "options": "--cap-add SYS_ADMIN --device /dev/fuse"}'
+          container: '{"image": "arm64v8/ubuntu:22.04", "options": "--cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined"}'
     container: ${{ fromJSON(matrix.runner.container) }}
     permissions:
       checks: write
