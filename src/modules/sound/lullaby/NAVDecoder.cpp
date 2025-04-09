@@ -9,21 +9,24 @@
 #include "common/navinput.h"
 #include "filesystem/File.h"
 
-namespace love
-{
-
 template<typename T>
-int16 reduceBits(const uint8_t *buf)
+int16_t reduceBits(const uint8_t *buf)
 {
 	constexpr size_t byteSize = sizeof(T);
 	T value = T();
 	std::copy(buf, buf + byteSize, (uint8_t *) &value);
 
 	if constexpr (std::is_floating_point<T>::value)
-		return (int16) (std::clamp(value, T(-1), T(1)) * 32767.0f);
+	{
+		constexpr T minval = T(-1), maxval = T(1), mulval = T(32767);
+		return (int16_t) (std::clamp(value, minval, maxval) * mulval);
+	}
 	else
-		return value >> ((byteSize - sizeof(int16)) * 8LL);
+		return value >> ((byteSize - sizeof(int16_t)) * 8LL);
 }
+
+namespace love
+{
 
 namespace sound::lullaby
 {
@@ -37,13 +40,18 @@ NAVDecoder::NAVDecoder(Stream *stream, int bufsize)
 , streamInfo(nullptr)
 , streamIndex(0)
 {
+	using namespace love::filesystem;
+
+	// Settings that prevents HWaccel.
+	constexpr nav_settings DEFAULT_AUDIO_SETTINGS = {NAV_SETTINGS_VERSION, nullptr, true};
+
 	// If possible, get the filename.
 	std::string filename;
-	if (love::filesystem::File *streamAsFile = dynamic_cast<love::filesystem::File*>(stream))
+	if (File *streamAsFile = dynamic_cast<File*>(stream))
 		filename = streamAsFile->getFilename();
 
 	// Open NAV
-	nav = nav_open(&input, filename.empty() ? nullptr : filename.c_str(), nullptr);
+	nav = nav_open(&input, filename.empty() ? nullptr : filename.c_str(), &DEFAULT_AUDIO_SETTINGS);
 	if (!nav)
 	{
 		std::string err = nav_error();

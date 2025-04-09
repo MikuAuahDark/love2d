@@ -3,15 +3,19 @@
 #include <numeric>
 #include <vector>
 
-#include "nav_internal.hpp"
-#include "nav_backend.hpp"
-#include "nav_backend_androidndk.hpp"
-#include "nav_backend_ffmpeg.hpp"
-#include "nav_backend_gstreamer.hpp"
-#include "nav_backend_mediafoundation.hpp"
-#include "nav_error.hpp"
-#include "nav_input_file.hpp"
-#include "nav_input_memory.hpp"
+#include "Internal.hpp"
+#include "Backend.hpp"
+#include "Common.hpp"
+#include "androidndk/AndroidNDKBackend.hpp"
+#include "ffmpeg4/FFmpeg4Backend.hpp"
+#include "ffmpeg5/FFmpeg5Backend.hpp"
+#include "ffmpeg6/FFmpeg6Backend.hpp"
+#include "ffmpeg7/FFmpeg7Backend.hpp"
+#include "gstreamer/GStreamerBackend.hpp"
+#include "mediafoundation/MediaFoundationBackend.hpp"
+#include "Error.hpp"
+#include "InputFile.hpp"
+#include "InputMemory.hpp"
 
 #include "nav/nav.h"
 
@@ -63,13 +67,20 @@ public:
 			init();
 	}
 
-	nav::State *open(nav_input *input, const char *filename, const size_t *order)
+	nav::State *open(nav_input *input, const char *filename, const nav_settings *settings)
 	{
+		static nav_settings defaultSettings = {
+			NAV_SETTINGS_VERSION,
+			nullptr,
+			nav::getEnvvarBool("NAV_DISABLE_HWACCEL")
+		};
 		ensureInit();
 
+		if (settings == nullptr)
+			settings = &defaultSettings;
+
 		std::vector<std::string> errors;
-		if (!order)
-			order = defaultOrder.data();
+		const size_t *order = settings->backend_order ? settings->backend_order : defaultOrder.data();
 
 		for (size_t backendIndex = *order; *order; order++)
 		{
@@ -79,7 +90,7 @@ public:
 
 				try
 				{
-					return b->open(input, filename);
+					return b->open(input, filename, settings);
 				}
 				catch (const std::exception &e)
 				{
@@ -122,8 +133,17 @@ private:
 #ifdef NAV_BACKEND_ANDROIDNDK
 	&nav::androidndk::create,
 #endif
-#if defined(NAV_BACKEND_FFMPEG) && (NAV_BACKEND_FFMPEG_OK)
-	&nav::ffmpeg::create,
+#ifdef NAV_BACKEND_FFMPEG_7
+	&nav::ffmpeg7::create,
+#endif
+#ifdef NAV_BACKEND_FFMPEG_6
+	&nav::ffmpeg6::create,
+#endif
+#ifdef NAV_BACKEND_FFMPEG_5
+	&nav::ffmpeg5::create,
+#endif
+#ifdef NAV_BACKEND_FFMPEG_4
+	&nav::ffmpeg4::create,
 #endif
 #ifdef NAV_BACKEND_GSTREAMER
 	&nav::gstreamer::create,
@@ -204,9 +224,9 @@ extern "C" const char *nav_backend_info(size_t index)
 	return backend ? wrapcall<const char*>(backend, &nav::Backend::getInfo, nullptr) : nullptr;
 }
 
-extern "C" nav_t *nav_open(nav_input *input, const char *filename, const size_t *order)
+extern "C" nav_t *nav_open(nav_input *input, const char *filename, const nav_settings *settings)
 {
-	return wrapcall<nav_t*>(&backendContainer, &BackendContainer::open, nullptr, input, filename, order);
+	return wrapcall<nav_t*>(&backendContainer, &BackendContainer::open, nullptr, input, filename, settings);
 }
 
 extern "C" void nav_close(nav_t *state)

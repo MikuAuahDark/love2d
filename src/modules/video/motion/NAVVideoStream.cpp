@@ -4,7 +4,6 @@
 // LOVE
 #include "common/Exception.h"
 #include "common/navinput.h"
-#include "video/DeltaSync.h"
 #include "NAVVideoStream.h"
 
 namespace love::video::motion
@@ -75,7 +74,7 @@ NAVVideoStream::NAVVideoStream(filesystem::File *file)
 	frontBuffer.swap(backBuffer);
 	stepToBackbuffer();
 
-	frameSync.set(new DeltaSync(false), Acquire::NORETAIN);
+	frameSync.set(new DeltaSync(), Acquire::NORETAIN);
 }
 
 NAVVideoStream::~NAVVideoStream()

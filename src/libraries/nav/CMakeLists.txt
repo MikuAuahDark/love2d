@@ -5,6 +5,10 @@ if(POLICY CMP0077)
 	cmake_policy(SET CMP0077 NEW)
 endif()
 
+if(POLICY CMP0144)
+	cmake_policy(SET CMP0144 NEW)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Read version
@@ -42,40 +46,52 @@ endif()
 
 add_library(nav ${NAV_SHARED_VALUE}
 	${NAV_PUBLIC_INCLUDE}
-	src/nav.cpp
-	src/nav_backend.cpp
-	src/nav_backend.hpp
-	src/nav_backend_androidndk.cpp
-	src/nav_backend_androidndk.hpp
-	src/nav_backend_androidndk_funcptr.h
-	src/nav_backend_androidndk_internal.hpp
-	src/nav_backend_ffmpeg.cpp
-	src/nav_backend_ffmpeg.hpp
-	src/nav_backend_ffmpeg_funcptr.h
-	src/nav_backend_ffmpeg_internal.hpp
-	src/nav_backend_gstreamer.cpp
-	src/nav_backend_gstreamer.hpp
-	src/nav_backend_gstreamer_funcptr.h
-	src/nav_backend_gstreamer_internal.hpp
-	src/nav_backend_mediafoundation.cpp
-	src/nav_backend_mediafoundation.hpp
-	src/nav_backend_mediafoundation_internal.hpp
-	src/nav_common.cpp
-	src/nav_common.hpp
-	src/nav_config.hpp
-	src/nav_dynlib.cpp
-	src/nav_dynlib.hpp
-	src/nav_error.cpp
-	src/nav_error.hpp
-	src/nav_input_file.cpp
-	src/nav_input_file.hpp
-	src/nav_input_file_android.cpp
-	src/nav_input_memory.cpp
-	src/nav_input_memory.hpp
-	src/nav_internal.hpp
-	src/nav_internal.cpp
+	src/NAV.cpp
+	src/Backend.cpp
+	src/Backend.hpp
+	src/androidndk/AndroidNDKBackend.cpp
+	src/androidndk/AndroidNDKBackend.hpp
+	src/androidndk/AndroidNDKPointers.h
+	src/androidndk/AndroidNDKInternal.hpp
+	src/ffmpeg_common/FFmpegBackend.cpp
+	src/ffmpeg_common/FFmpegBackend.hpp
+	src/ffmpeg_common/FFmpegCommon.hpp
+	src/ffmpeg_common/FFmpegInternal.hpp
+	src/ffmpeg_common/FFmpegPointers.h
+	src/ffmpeg_common/FFmpegSetup.h
+	src/ffmpeg4/FFmpeg4Backend.cpp
+	src/ffmpeg4/FFmpeg4Backend.hpp
+	src/ffmpeg5/FFmpeg5Backend.cpp
+	src/ffmpeg5/FFmpeg5Backend.hpp
+	src/ffmpeg6/FFmpeg6Backend.cpp
+	src/ffmpeg6/FFmpeg6Backend.hpp
+	src/ffmpeg7/FFmpeg7Backend.cpp
+	src/ffmpeg7/FFmpeg7Backend.hpp
+	src/gstreamer/GStreamerBackend.cpp
+	src/gstreamer/GStreamerBackend.hpp
+	src/gstreamer/GStreamerPointers.h
+	src/gstreamer/GStreamerInternal.hpp
+	src/mediafoundation/MediaFoundationBackend.cpp
+	src/mediafoundation/MediaFoundationBackend.hpp
+	src/mediafoundation/MediaFoundationInternal.hpp
+	src/mediafoundation/MediaFoundationPointers.h
+	src/Common.cpp
+	src/Common.hpp
+	src/NAVConfig.hpp
+	src/DynLib.cpp
+	src/DynLib.hpp
+	src/Error.cpp
+	src/Error.hpp
+	src/InputFile.cpp
+	src/InputFile.hpp
+	src/InputFileAndroid.cpp
+	src/InputMemory.cpp
+	src/InputMemory.hpp
+	src/Internal.hpp
+	src/Internal.cpp
 )
 target_include_directories(nav PUBLIC include)
+target_include_directories(nav PRIVATE src ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_features(nav PUBLIC c_std_99)
 target_compile_features(nav PRIVATE cxx_std_17)
 
@@ -100,11 +116,34 @@ endif()
 # Silence C4996
 if(MSVC)
 	target_compile_definitions(nav PRIVATE _CRT_SECURE_NO_WARNINGS)
+	target_compile_options(nav PRIVATE /Zc:__cplusplus)
 endif()
 
 # Find FFmpeg
-if(FFMPEG_DIR)
-	# Ok I trusted you
+if(DEFINED FFMPEG4_DIR OR DEFINED FFMPEG5_DIR OR DEFINED FFMPEG6_DIR OR DEFINED FFMPEG7_DIR)
+	# Multi FFmpeg mode
+	if(DEFINED FFMPEG_DIR)
+		message(FATAL_ERROR "Cannot combine multi-FFmpeg include directories with single FFmpeg")
+	endif()
+
+	# Ok I trust you
+	message(STATUS "Multi-FFmpeg mode activates:")
+	foreach(i RANGE 4 7)
+		if(FFMPEG${i}_DIR)
+			set_source_files_properties(
+				src/ffmpeg${i}/FFmpeg${i}Backend.cpp
+				src/ffmpeg${i}/FFmpeg${i}Backend.hpp
+				PROPERTIES
+				INCLUDE_DIRECTORIES ${FFMPEG${i}_DIR}/include
+			)
+			set(NAV_BACKEND_FFMPEG_${i} ON)
+			message(STATUS "- FFmpeg${i}")
+		endif()
+	endforeach()
+	configure_file(src/multiffmpegconfig.h.in multiffmpegconfig.h)
+	target_compile_definitions(nav PRIVATE HAVE_MULTIFFMPEGCONFIG_H)
+elseif(FFMPEG_DIR)
+	# Anyway I'll still trust you
 	set(FFMPEG_INCLUDE_DIRS ${FFMPEG_DIR}/include)
 elseif(ENV{FFMPEG_DIR})
 	set(FFMPEG_INCLUDE_DIRS $ENV{FFMPEG_DIR}/include)
@@ -113,7 +152,7 @@ else()
 endif()
 
 if(FFMPEG_FOUND OR FFMPEG_INCLUDE_DIRS)
-	message(STATUS "Using FFmpeg include directory: ${FFMPEG_INCLUDE_DIRS}")
+	message(STATUS "Using FFmpeg include directory (Single FFmpeg mode): ${FFMPEG_INCLUDE_DIRS}")
 	target_include_directories(nav PRIVATE ${FFMPEG_INCLUDE_DIRS})
 endif()
 
@@ -126,6 +165,11 @@ if(PKG_CONFIG_FOUND)
 		message(STATUS "Using GStreamer include directory: ${GST_INCLUDE_DIRS} ${GST_BASE_INCLUDE_DIRS}")
 		target_include_directories(nav PRIVATE ${GST_INCLUDE_DIRS} ${GST_BASE_INCLUDE_DIRS})
 	endif()
+endif()
+
+# libdl?
+if(CMAKE_DL_LIBS)
+	target_link_libraries(nav PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
 # Install files
