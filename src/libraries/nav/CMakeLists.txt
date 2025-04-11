@@ -22,6 +22,7 @@ set(NAV_VERSION_PATCH ${CMAKE_MATCH_1})
 
 # Public include files
 set(NAV_PUBLIC_INCLUDE
+	include/nav/attributes.h
 	include/nav/audioformat.h
 	include/nav/input.h
 	include/nav/nav.h
@@ -110,6 +111,11 @@ if(NAV_SHARED)
 
 	if(UNIX)
 		target_link_options(nav PRIVATE "-Wl,--no-undefined")
+		set_target_properties(nav PROPERTIES
+			C_VISIBILITY_PRESET hidden
+			CXX_VISIBILITY_PRESET hidden
+			VISIBILITY_INLINES_HIDDEN ON
+		)
 	endif()
 endif()
 
