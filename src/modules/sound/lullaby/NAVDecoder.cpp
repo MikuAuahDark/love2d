@@ -42,8 +42,8 @@ NAVDecoder::NAVDecoder(Stream *stream, int bufsize)
 {
 	using namespace love::filesystem;
 
-	// Settings that prevents HWaccel.
-	constexpr nav_settings DEFAULT_AUDIO_SETTINGS = {NAV_SETTINGS_VERSION, nullptr, true};
+	// Settings that prevents HWaccel and hint single thread.
+	constexpr nav_settings DEFAULT_AUDIO_SETTINGS = {NAV_SETTINGS_VERSION, nullptr, 1, true};
 
 	// If possible, get the filename.
 	std::string filename;
@@ -76,7 +76,10 @@ NAVDecoder::NAVDecoder(Stream *stream, int bufsize)
 				// no break, we want to disable the rest of the stream
 			}
 			else
+			{
+				nav_stream_enable(nav, i, false);
 				streamInfo = nullptr;
+			}
 		}
 	}
 

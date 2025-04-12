@@ -46,7 +46,10 @@ NAVVideoStream::NAVVideoStream(filesystem::File *file)
 				// no break, we want to disable the rest of the stream
 			}
 			else
+			{
+				nav_stream_enable(nav, i, false);
 				streamInfo = nullptr;
+			}
 		}
 	}
 
