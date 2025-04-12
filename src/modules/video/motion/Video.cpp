@@ -62,8 +62,8 @@ Video::~Video()
 VideoStream *Video::newVideoStream(love::filesystem::File *file)
 {
 	std::vector<DecoderFactoryFunc> decoders = {
-		decoderFactory<NAVVideoStream>(),
 		decoderFactory<TheoraVideoStream>(),
+		decoderFactory<NAVVideoStream>()
 	};
 	std::stringstream decodingErrors;
 

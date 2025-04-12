@@ -68,7 +68,6 @@ public:
 
 			initialized = true;
 		}
-
 	}
 
 	inline void ensureInit()
