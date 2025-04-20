@@ -39,6 +39,7 @@ private:
 	struct NAVFrame: Frame
 	{
 		NAVFrame();
+		~NAVFrame();
 		void set(nav_frame_t *frame = nullptr);
 
 		double pts;
@@ -49,7 +50,7 @@ private:
 
 	nav_input input;
 	nav_t *nav;
-	nav_streaminfo_t *streamInfo;
+	const nav_streaminfo_t *streamInfo;
 	size_t streamIndex;
 	double position;
 	bool hasNewFrame;

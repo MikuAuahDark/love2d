@@ -38,7 +38,7 @@ public:
 private:
 	nav_input input;
 	nav_t *nav;
-	nav_streaminfo_t *streamInfo;
+	const nav_streaminfo_t *streamInfo;
 	size_t streamIndex;
 
 	std::deque<std::vector<uint8_t>> queuedBuffers;

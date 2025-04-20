@@ -379,6 +379,67 @@ struct CallOnLeave
 namespace nav::_NAV_FFMPEG_NAMESPACE
 {
 
+FFmpegFrame::FFmpegFrame(FFmpegBackend *f, nav_streaminfo_t *sinfo, AVFrame *frame, double pts, size_t si)
+: f(f) // must be first
+, acquireData()
+, pts(pts)
+, frame(NAV_FFCALL(av_frame_clone)(frame))
+, streamInfo(sinfo)
+, index(si)
+{
+	if (frame == nullptr)
+		throw std::runtime_error("Cannot clone AVFrame");
+}
+
+size_t FFmpegFrame::getStreamIndex() const noexcept
+{
+	return index;
+}
+
+const nav_streaminfo_t *FFmpegFrame::getStreamInfo() const noexcept
+{
+	return streamInfo;
+}
+
+double FFmpegFrame::tell() const noexcept
+{
+	return pts;
+}
+
+const uint8_t *const *FFmpegFrame::acquire(ptrdiff_t **strides, size_t *nplanes)
+{
+	if (acquireData.source == nullptr)
+	{
+		// AVFrame is already in CPU
+		for (size_t i = 0; frame->data[i]; i++)
+		{
+			acquireData.planes.push_back(frame->data[i]);
+			acquireData.strides.push_back(frame->linesize[i]);
+			acquireData.source = frame->data[0]; // Just for marking.
+		}
+	}
+
+	if (nplanes)
+		*nplanes = acquireData.planes.size();
+	*strides = acquireData.strides.data();
+	return acquireData.planes.data();
+}
+
+void FFmpegFrame::release() noexcept
+{
+}
+
+FFmpegFrame::~FFmpegFrame()
+{
+	if (frame)
+	{
+		NAV_FFCALL(av_frame_unref)(frame);
+		NAV_FFCALL(av_frame_free)(&frame);
+	}
+}
+
+
+
 FFmpegState::FFmpegState(FFmpegBackend *backend, UniqueAVFormatContext &fmtctx, UniqueAVIOContext &ioctx, const nav_settings &settings)
 : f(backend)
 , formatContext(std::move(fmtctx))
@@ -458,6 +519,8 @@ FFmpegState::FFmpegState(FFmpegBackend *backend, UniqueAVFormatContext &fmtctx, 
 								0, nullptr
 							) >= 0;
 #else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 							resampler = NAV_FFCALL(swr_alloc_set_opts)(
 								nullptr,
 								stream->codecpar->channel_layout,
@@ -468,6 +531,7 @@ FFmpegState::FFmpegState(FFmpegBackend *backend, UniqueAVFormatContext &fmtctx, 
 								stream->codecpar->sample_rate,
 								0, nullptr
 							);
+#pragma GCC diagnostic pop
 							good = resampler;
 #endif
 						}
@@ -483,7 +547,10 @@ FFmpegState::FFmpegState(FFmpegBackend *backend, UniqueAVFormatContext &fmtctx, 
 #if _NAV_FFMPEG_VERSION >= 6
 							sinfo.audio.nchannels = stream->codecpar->ch_layout.nb_channels;
 #else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated"
 							sinfo.audio.nchannels = stream->codecpar->channels;
+#pragma GCC diagnostic pop
 #endif
 							sinfo.type = NAV_STREAMTYPE_AUDIO;
 						}
@@ -495,16 +562,19 @@ FFmpegState::FFmpegState(FFmpegBackend *backend, UniqueAVFormatContext &fmtctx, 
 						std::tie(sinfo.video.format, rescaleFormat) = getBestPixelFormat(originalFormat);
 
 						// Need to rescale
-						rescaler = NAV_FFCALL(sws_getContext)(
-							stream->codecpar->width,
-							stream->codecpar->height,
-							originalFormat,
-							stream->codecpar->width,
-							stream->codecpar->height,
-							rescaleFormat,
-							SWS_BICUBIC, nullptr, nullptr, nullptr
-						);
-						good = rescaler != nullptr;
+						if (rescaleFormat != originalFormat)
+						{
+							rescaler = NAV_FFCALL(sws_getContext)(
+								stream->codecpar->width,
+								stream->codecpar->height,
+								originalFormat,
+								stream->codecpar->width,
+								stream->codecpar->height,
+								rescaleFormat,
+								SWS_BICUBIC, nullptr, nullptr, nullptr
+							);
+							good = rescaler != nullptr;
+						}
 
 						if (good)
 						{
@@ -529,8 +599,13 @@ FFmpegState::FFmpegState(FFmpegBackend *backend, UniqueAVFormatContext &fmtctx, 
 		{
 			stream->discard = AVDISCARD_ALL;
 			NAV_FFCALL(avcodec_free_context)(&codecContext);
-			NAV_FFCALL(swr_free)(&resampler);
-			NAV_FFCALL(sws_freeContext)(rescaler); rescaler = nullptr;
+
+			if (rescaler)
+			{
+				NAV_FFCALL(swr_free)(&resampler);
+				NAV_FFCALL(sws_freeContext)(rescaler);
+				rescaler = nullptr;
+			}
 		}
 
 		streamInfo.push_back(sinfo);
@@ -550,12 +625,17 @@ FFmpegState::~FFmpegState()
 		NAV_FFCALL(sws_freeContext)(rescaler);
 }
 
-size_t FFmpegState::getStreamCount() noexcept
+Backend *FFmpegState::getBackend() const noexcept
+{
+	return f;
+}
+
+size_t FFmpegState::getStreamCount() const noexcept
 {
 	return formatContext->nb_streams;
 }
 
-nav_streaminfo_t *FFmpegState::getStreamInfo(size_t index) noexcept
+const nav_streaminfo_t *FFmpegState::getStreamInfo(size_t index) const noexcept
 {
 	if (index >= streamInfo.size())
 	{
@@ -566,7 +646,7 @@ nav_streaminfo_t *FFmpegState::getStreamInfo(size_t index) noexcept
 	return &streamInfo[index];
 }
 
-bool FFmpegState::isStreamEnabled(size_t index) noexcept
+bool FFmpegState::isStreamEnabled(size_t index) const noexcept
 {
 	if (index >= streamInfo.size())
 	{
@@ -727,6 +807,12 @@ nav_frame_t *FFmpegState::decode(AVFrame *frame, size_t index)
 		{
 			// Decode audio
 			SwrContext *resampler = resamplers[index];
+			if (resampler == nullptr)
+				// Skipping conversion
+				return new FFmpegFrame(f, streamInfo, tempFrame.get(), position, index);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 			std::unique_ptr<FrameVector> result(new FrameVector(
 				streamInfo,
 				index,
@@ -742,10 +828,11 @@ nav_frame_t *FFmpegState::decode(AVFrame *frame, size_t index)
 					* NAV_AUDIOFORMAT_BYTESIZE(streamInfo->audio.format)
 				)
 			));
+#pragma GCC diagnostic pop
 
 			if (resampler)
 			{
-				uint8_t *tempBuffer[AV_NUM_DATA_POINTERS] = {(uint8_t*) result->data(), nullptr};
+				uint8_t *tempBuffer[AV_NUM_DATA_POINTERS] = {result->pointer(), nullptr};
 
 				checkError(
 					NAV_FFCALL(av_strerror),
@@ -759,6 +846,10 @@ nav_frame_t *FFmpegState::decode(AVFrame *frame, size_t index)
 		{
 			// Decode video
 			SwsContext *rescaler = rescalers[index];
+			if (rescaler == nullptr)
+				// Skipping conversion
+				return new FFmpegFrame(f, streamInfo, tempFrame.get(), position, index);
+
 			size_t needSize = streamInfo->video.size();
 			uint8_t *bufferSetup[AV_NUM_DATA_POINTERS] = {nullptr};
 			size_t dimension = ((size_t) streamInfo->video.width) * streamInfo->video.height;
@@ -772,14 +863,14 @@ nav_frame_t *FFmpegState::decode(AVFrame *frame, size_t index)
 					throw std::runtime_error("internal error @ " __FILE__ ":" NAV_STRINGIZE(__LINE__) ". Please report!");
 				case NAV_PIXELFORMAT_RGB8:
 				{
-					bufferSetup[0] = (uint8_t*) result->data();
+					bufferSetup[0] = result->pointer();
 					linesizeSetup[0] = (int) streamInfo->video.width * 3;
 					break;
 				}
 				case NAV_PIXELFORMAT_YUV420:
 				{
 					size_t halfdim = ((size_t) (streamInfo->video.width + 1) / 2) * ((streamInfo->video.height + 1) / 2);
-					bufferSetup[0] = (uint8_t*) result->data();
+					bufferSetup[0] = result->pointer();
 					linesizeSetup[0] = streamInfo->video.width;
 					bufferSetup[1] = bufferSetup[0] + dimension;
 					linesizeSetup[1] = (streamInfo->video.width + 1) / 2;
@@ -789,7 +880,7 @@ nav_frame_t *FFmpegState::decode(AVFrame *frame, size_t index)
 				}
 				case NAV_PIXELFORMAT_YUV444:
 				{
-					bufferSetup[0] = (uint8_t*) result->data();
+					bufferSetup[0] = result->pointer();
 					linesizeSetup[0] = streamInfo->video.width;
 					bufferSetup[1] = bufferSetup[0] + dimension;
 					linesizeSetup[1] = streamInfo->video.width;
@@ -799,7 +890,7 @@ nav_frame_t *FFmpegState::decode(AVFrame *frame, size_t index)
 				}
 				case NAV_PIXELFORMAT_NV12:
 				{
-					bufferSetup[0] = (uint8_t*) result->data();
+					bufferSetup[0] = result->pointer();
 					linesizeSetup[0] = streamInfo->video.width;
 					bufferSetup[1] = bufferSetup[0] + dimension;
 					linesizeSetup[1] = ((streamInfo->video.width + 1) / 2) * 2;

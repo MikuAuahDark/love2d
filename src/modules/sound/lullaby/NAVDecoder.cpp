@@ -170,38 +170,46 @@ bool NAVDecoder::refillBuffers(int64 target)
 		if (nav_frame_streamindex(frame.get()) != streamIndex)
 			continue;
 
-		const uint8_t *navFrameBuffer = (const uint8_t*) nav_frame_buffer(frame.get());
-		size_t navFrameSize = nav_frame_size(frame.get());
-
-		if (target != -1)
+		ptrdiff_t *length;
+		if (const uint8_t *const *frameBuffer = nav_frame_acquire(frame.get(), &length, nullptr))
 		{
-			int frameSizeBytes = (bitDepth / 8) * getChannelCount();
-			int64 navFrameCount = (int64) (navFrameSize / frameSizeBytes);
-			int64 startSample = (int64) (nav_frame_tell(frame.get()) * getSampleRate());
+			const uint8_t *navFrameBuffer = frameBuffer[0];
+			size_t navFrameSize = (size_t) length[0];
 
-			if ((startSample + navFrameCount) < target)
-				// Need to seek more
-				continue;
-			else if (target < startSample)
-				// Inject silence
-				queuedBuffers.emplace_back((size_t) ((startSample - target) * frameSizeBytes), '\0');
-			else
+			if (target != -1)
 			{
-				int64 offFrame = startSample + navFrameCount - target;
-				size_t offSizeBytes = (startSample + navFrameCount - target) * frameSizeBytes;
-				navFrameBuffer += offSizeBytes;
-				navFrameSize -= offSizeBytes;
+				int frameSizeBytes = (bitDepth / 8) * getChannelCount();
+				int64 navFrameCount = (int64) (navFrameSize / frameSizeBytes);
+				int64 startSample = (int64) (nav_frame_tell(frame.get()) * getSampleRate());
+
+				if ((startSample + navFrameCount) < target)
+				{
+					// Need to seek more
+					nav_frame_release(frame.get());
+					continue;
+				}
+				else if (target < startSample)
+					// Inject silence
+					queuedBuffers.emplace_back((size_t) ((startSample - target) * frameSizeBytes), '\0');
+				else
+				{
+					int64 offFrame = startSample + navFrameCount - target;
+					size_t offSizeBytes = (startSample + navFrameCount - target) * frameSizeBytes;
+					navFrameBuffer += offSizeBytes;
+					navFrameSize -= offSizeBytes;
+				}
 			}
+
+			if (bitDepth <= 16)
+				// For 8-bit and 16-bit, no conversion
+				queuedBuffers.emplace_back(navFrameBuffer, navFrameBuffer + navFrameSize);
+			else
+				// For anything else, perform conversion
+				queuedBuffers.push_back(reduceBitDepth(navFrameBuffer, navFrameSize, nav_audio_format(streamInfo)));
+
+			nav_frame_release(frame.get());
+			return true;
 		}
-
-		if (bitDepth <= 16)
-			// For 8-bit and 16-bit, no conversion
-			queuedBuffers.emplace_back(navFrameBuffer, navFrameBuffer + navFrameSize);
-		else
-			// For anything else, perform conversion
-			queuedBuffers.push_back(reduceBitDepth(navFrameBuffer, navFrameSize, nav_audio_format(streamInfo)));
-
-		return true;
 	}
 
 	if (nav_error() == nullptr)

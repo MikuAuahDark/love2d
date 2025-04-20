@@ -7,18 +7,39 @@
 #endif
 
 #include "Common.hpp"
+#include "Error.hpp"
 
 namespace nav
 {
 
 FrameVector::FrameVector(nav_streaminfo_t *streaminfo, size_t streamindex, double position, const void *data, size_t size)
 : buffer(size)
+, data(planeCount(streaminfo->video.format), nullptr)
+, planeWidths(planeCount(streaminfo->video.format), 0)
 , streaminfo(streaminfo)
 , streamindex(streamindex)
 , position(position)
 {
 	if (data)
 		std::copy((const uint8_t*) data, ((const uint8_t*) data) + size, buffer.data());
+	
+	// Partition data, assume no padding
+	uint8_t *start = buffer.data();
+
+	if (streaminfo->type == NAV_STREAMTYPE_VIDEO)
+	{
+		for (size_t i = 0; i < planeCount(streaminfo->video.format); i++)
+		{
+			this->data[i] = start;
+			planeWidths[i] = streaminfo->plane_width(i);
+			start += streaminfo->plane_width(i) * streaminfo->plane_height(i);
+		}
+	}
+	else
+	{
+		planeWidths[0] = buffer.size();
+		this->data[0] = start;
+	}
 }
 
 FrameVector::~FrameVector()
@@ -39,19 +60,29 @@ double FrameVector::tell() const noexcept
 	return position;
 }
 
-size_t FrameVector::size() const noexcept
+const uint8_t *const *FrameVector::acquire(ptrdiff_t **strides, size_t *nplanes)
 {
-	return buffer.size();
+	if (strides == nullptr)
+	{
+		error::set("strides is null");
+		return nullptr;
+	}
+
+	if (nplanes)
+		*nplanes = planeCount(streaminfo->video.format);
+
+	*strides = planeWidths.data();
+
+	return data.data();
 }
 
-void *FrameVector::data() noexcept
+void FrameVector::release() noexcept
+{
+}
+
+uint8_t *FrameVector::pointer() noexcept
 {
 	return buffer.data();
-}
-
-bool FrameVector::operator<(const FrameVector &rhs) const noexcept
-{
-	return position < rhs.position;
 }
 
 bool getEnvvarBool(const std::string& name)
@@ -87,6 +118,23 @@ std::optional<int> getEnvvarInt(const std::string &name)
 bool checkBackendDisabled(const std::string &backendNameUppercase)
 {
 	return getEnvvarBool("NAV_DISABLE_" + backendNameUppercase);
+}
+
+size_t planeCount(nav_pixelformat fmt) noexcept
+{
+	switch (fmt)
+	{
+		case NAV_PIXELFORMAT_UNKNOWN:
+		default:
+			return 0;
+		case NAV_PIXELFORMAT_RGB8:
+			return 1;
+		case NAV_PIXELFORMAT_NV12:
+			return 2;
+		case NAV_PIXELFORMAT_YUV420:
+		case NAV_PIXELFORMAT_YUV444:
+			return 3;
+	}
 }
 
 #ifdef _WIN32

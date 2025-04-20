@@ -199,87 +199,129 @@ NAVVideoStream::NAVFrame::NAVFrame()
 {
 }
 
+NAVVideoStream::NAVFrame::~NAVFrame()
+{
+	// Make deletion harmless on parent destructor.
+	crplane = nullptr;
+	cbplane = nullptr;
+}
+
 void NAVVideoStream::NAVFrame::set(nav_frame_t *frame)
 {
-	delete[] yplane; yplane = nullptr;
-	delete[] cbplane; cbplane = nullptr;
-	delete[] crplane; crplane = nullptr;
+	delete[] yplane; // y plane holds all the memory
+	yplane = nullptr;
+	cbplane = nullptr;
+	crplane = nullptr;
 	pts = -1;
 
 	if (frame)
 	{
-		nav_streaminfo_t *streamInfo = nav_frame_streaminfo(frame);
+		const nav_streaminfo_t *streamInfo = nav_frame_streaminfo(frame);
 		assert(nav_streaminfo_type(streamInfo) == NAV_STREAMTYPE_VIDEO);
 
 		uint32_t width, height;
 		nav_video_dimensions(streamInfo, &width, &height);
-		const uint8_t *frameBuffer = (const uint8_t*) nav_frame_buffer(frame);
 
 		yw = (int) width;
 		yh = (int) height;
 		pts = nav_frame_tell(frame);
 
-		switch (nav_video_pixel_format(streamInfo))
+		ptrdiff_t *strides = nullptr;
+		size_t nplanes = 1;
+		if (const uint8_t *const *frameData = nav_frame_acquire(frame, &strides, &nplanes))
 		{
-			case NAV_PIXELFORMAT_YUV420:
+			switch (nav_video_pixel_format(streamInfo))
 			{
-				cw = (width + 1) / 2;
-				ch = (height + 1) / 2;
-				size_t ysize = ((size_t) width) * height;
-				size_t uvsize = ((size_t) cw) * ch;
-				yplane = new unsigned char[ysize];
-				cbplane = new unsigned char[uvsize];
-				crplane = new unsigned char[uvsize];
-				memcpy(yplane, frameBuffer, ysize);
-				memcpy(cbplane, frameBuffer + ysize, uvsize);
-				memcpy(crplane, frameBuffer + ysize + uvsize, uvsize);
-				break;
-			}
-			case NAV_PIXELFORMAT_YUV444:
-			{
-				cw = yw;
-				ch = yh;
-				size_t size = ((size_t) width) * height;
-				yplane = new unsigned char[size];
-				cbplane = new unsigned char[size];
-				crplane = new unsigned char[size];
-				memcpy(yplane, frameBuffer, size);
-				memcpy(cbplane, frameBuffer + size, size);
-				memcpy(crplane, frameBuffer + size * 2, size);
-				break;
-			}
-			case NAV_PIXELFORMAT_NV12:
-			{
-				cw = (width + 1) / 2;
-				ch = (height + 1) / 2;
-				size_t ysize = ((size_t) width) * height;
-				size_t uvsize = ((size_t) cw) * ch;
-				yplane = new unsigned char[ysize];
-				cbplane = new unsigned char[uvsize];
-				crplane = new unsigned char[uvsize];
-				memcpy(yplane, frameBuffer, ysize);
-
-				const uint8_t *uvBuffer = frameBuffer + ysize;
-
-				// Need to iterate UV manually.
-				for (size_t i = 0; i < uvsize; i++)
+				case NAV_PIXELFORMAT_YUV420:
+				case NAV_PIXELFORMAT_YUV444:
 				{
-					cbplane[i] = uvBuffer[i * 2 + 0];
-					crplane[i] = uvBuffer[i * 2 + 1];
+					size_t hw = 0, hh = 0;
+					nav_video_plane_dimensions(streamInfo, 1, &hw, &hh);
+
+					cw = (int) hw;
+					ch = (int) hh;
+					size_t ysize = ((size_t) width) * height;
+					size_t uvsize = hw * hh;
+					yplane = new unsigned char[ysize + 2 * uvsize];
+					cbplane = yplane + ysize;
+					crplane = cbplane + uvsize;
+
+					if (strides[0] == width)
+						// Single memcpy
+						memcpy(yplane, frameData[0], ysize);
+					else
+					{
+						for (int i = 0; i < (int) height; i++)
+							memcpy(yplane + i * width, frameData[0] + i * strides[0], width);
+					}
+
+					if (strides[1] == cw && strides[2] == cw)
+					{
+						// Single memcpy
+						memcpy(cbplane, frameData[1], uvsize);
+						memcpy(crplane, frameData[2], uvsize);
+					}
+					else
+					{
+						for (int i = 0; i < ch; i++)
+						{
+							memcpy(cbplane + i * cw, frameData[1] + i * strides[1], cw);
+							memcpy(crplane + i * cw, frameData[2] + i * strides[2], cw);
+						}
+					}
+
+					break;
 				}
-				break;
+				case NAV_PIXELFORMAT_NV12:
+				{
+					cw = (width + 1) / 2;
+					ch = (height + 1) / 2;
+					size_t ysize = ((size_t) width) * height;
+					size_t uvsize = ((size_t) cw) * ch;
+					yplane = new unsigned char[ysize + 2 * uvsize];
+					cbplane = yplane + ysize;
+					crplane = cbplane + uvsize;
+
+					if (strides[0] == width)
+						// Single memcpy
+						memcpy(yplane, frameData[0], ysize);
+					else
+					{
+						for (int i = 0; i < (int) height; i++)
+							memcpy(yplane + i * width, frameData[0] + i * strides[0], width);
+					}
+
+					// Need to iterate UV manually.
+					for (int y = 0; y < ch; y++)
+					{
+						const uint8_t *frameLine = frameData[1] + y * strides[1];
+
+						for (int x = 0; x < cw; x++)
+						{
+							cbplane[y * cw + x] = frameLine[x * 2 + 0];
+							crplane[y * cw + x] = frameLine[x * 2 + 1];
+						}
+					}
+					break;
+				}
+				default:
+				{
+					yplane = new unsigned char[1];
+					cbplane = yplane;
+					crplane = yplane;
+					yw = yh = cw = ch = 1;
+					break;
+				}
 			}
-			default:
-			{
-				yplane = new unsigned char[1];
-				cbplane = new unsigned char[1];
-				crplane = new unsigned char[1];
-				yw = 1;
-				yh = 1;
-				cw = 1;
-				ch = 1;
-				break;
-			}
+
+			nav_frame_release(frame);
+		}
+		else
+		{
+			yplane = new unsigned char[1];
+			cbplane = yplane;
+			crplane = yplane;
+			yw = yh = cw = ch = 1;
 		}
 	}
 }
